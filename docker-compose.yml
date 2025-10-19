@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ucm
+      POSTGRES_PASSWORD: ucm
+      POSTGRES_DB: ucmdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ucm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  model_service:
+    image: python:3.11-slim
+    working_dir: /app
+    command: bash -c "echo 'Model service placeholder' && sleep infinity"
+    ports:
+      - "9000:9000"
+
+  backend:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - "./backend:/app"
+    command: bash -lc "pip install -r requirements.txt && python app.py"
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql+psycopg2://ucm:ucm@db:5432/ucmdb"
+      MODEL_SVC_URL: "http://model_service:9000"
+      ADMIN_API_KEY: "dev-admin-key"
+      PRIVACY_LOGGING: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      model_service:
+        condition: service_started
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - "./frontend:/app"
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "3000:3000"
+    environment:
+      BACKEND_BASE_URL: "http://backend:8000"
+      ADMIN_API_KEY: "dev-admin-key"
+      NEXT_PUBLIC_BASE_URL: "http://localhost:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

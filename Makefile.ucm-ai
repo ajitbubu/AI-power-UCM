@@ -1,0 +1,77 @@
+
+DC=docker compose -f docker-compose.ucm-ai.yml
+ENV=.env
+
+.PHONY: up down restart rebuild logs ps sh-backend sh-frontend sh-model db-shell test migrate revision lint seed clean
+
+## Start all services (build if needed)
+up:
+	$(DC) up --build
+
+## Stop and remove services
+down:
+	$(DC) down
+
+## Restart services without rebuild
+restart:
+	$(DC) down
+	$(DC) up -d
+
+## Force rebuild images and start detached
+rebuild:
+	$(DC) build --no-cache
+	$(DC) up -d
+
+## Tail logs (all services)
+logs:
+	$(DC) logs -f --tail=200
+
+## Show status
+ps:
+	$(DC) ps
+
+## Shells
+sh-backend:
+	$(DC) exec backend bash || $(DC) exec backend sh
+
+sh-frontend:
+	$(DC) exec frontend sh
+
+sh-model:
+	$(DC) exec model_service bash || $(DC) exec model_service sh
+
+## Postgres shell
+db-shell:
+	$(DC) exec db psql -U ucm -d ucmdb
+
+## Run backend tests (pytest) inside container
+test:
+	$(DC) exec backend bash -lc "pip install -r requirements.txt && pytest -q"
+
+## Alembic migrate to latest
+migrate:
+	$(DC) exec backend bash -lc "alembic -c alembic.ini upgrade head"
+
+## Alembic create revision (autogenerate) — usage: make revision MSG='my change'
+revision:
+	$(DC) exec backend bash -lc "alembic -c alembic.ini revision -m \"$$MSG\" --autogenerate"
+
+## Optional lint (backend only; installs ruff)
+lint:
+	$(DC) exec backend bash -lc "pip install ruff && ruff check ."
+
+## Seed example vendors (via admin API)
+seed:
+	curl -s -X POST http://localhost:8000/api/ucm/vendors \
+	  -H "Content-Type: application/json" \
+	  -H "X-Admin-Key: $${ADMIN_API_KEY:-dev-admin-key}" \
+	  -d '{"name":"Mixpanel","domain":"mixpanel.com","iabPurposes":[7,10],"gppSections":["USNAT"],"googleMappings":{"analytics_storage":"granted"},"riskScore":0.3}'
+	curl -s -X POST http://localhost:8000/api/ucm/vendors \
+	  -H "Content-Type: application/json" \
+	  -H "X-Admin-Key: $${ADMIN_API_KEY:-dev-admin-key}" \
+	  -d '{"name":"Segment","domain":"segment.com","iabPurposes":[7,10],"gppSections":["USNAT"],"googleMappings":{"analytics_storage":"granted"},"riskScore":0.2}'
+
+## Clean dangling images/volumes (CAUTION)
+clean:
+	$(DC) down -v
+	docker system prune -f

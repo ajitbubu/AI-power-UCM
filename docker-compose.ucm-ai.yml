@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ucm
+      POSTGRES_PASSWORD: ucm
+      POSTGRES_DB: ucmdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ucm -d ucmdb || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  model_service:
+    build: ./model_service
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/docs >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://ucm:ucm@db:5432/ucmdb}
+      MODEL_SVC_URL: ${MODEL_SVC_URL:-http://model_service:9000}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key}
+      PRIVACY_LOGGING: ${PRIVACY_LOGGING:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+      model_service:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    working_dir: /app
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    environment:
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://backend:8000}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-dev-admin-key}
+      NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL:-http://localhost:3000}
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  db-data:
